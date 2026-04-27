@@ -1,149 +1,49 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import sqlite3
 from typing import Optional
+from databricks import sql
+import os
+from dotenv import load_dotenv
 
 app = FastAPI()
-DB_NAME = "finance_tracker.db"
+load_dotenv()
 
-
-# ------------------------
-# Helper Function
-# ------------------------
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    conn = sql.connect(
+        # server_hostname=server_hostname,
+        # http_path=http_path,
+        # access_token=DATABRICKS_TOKEN
+        
+        server_hostname=os.getenv("SERVER_HOSTNAME"),
+        http_path=os.getenv("HTTP_PATH"),
+        access_token=os.getenv("DATABRICKS_TOKEN")
+    )
+    return conn
 
+class AddMovie(BaseModel):
+    id: int
+    title: str
+    release_year: int
+    hero: str
+    box_office: float
 
-# ------------------------
-# Models
-# ------------------------
-class Friend(BaseModel):
-    name: str
-
-
-class Category(BaseModel):
-    name: str
-    type: str
-    has_friend: int
-
-
-class Transaction(BaseModel):
-    date: str
-    category_id: int
-    amount: float
-    note: Optional[str] = None
-    friend_id: Optional[int] = None
-
-
-# ------------------------
-# Categories APIs
-# ------------------------
-@app.get("/categories")
-def get_categories():
+@app.post("/movie/add")
+def add_movie(am: AddMovie):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM categories")
-    data = cursor.fetchall()
+    cursor.execute("insert into movie_data.default.marvel_movies(id, title, release_year, hero, box_office_billions) values (?,?,?,?,?)", (am.id, am.title, am.release_year, am.hero, am.box_office))
+    conn.commit()
     conn.close()
-    return data
+    return {"message": "Movie Added"}
 
-
-@app.post("/categories")
-def add_category(category: Category):
+@app.get("/movie/{hero}")
+def fetch_movie_by_hero(hero: str):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO categories (name, type, has_friend) VALUES (?, ?, ?)",
-        (category.name, category.type, category.has_friend)
+        "select * from movie_data.default.marvel_movies where hero = ?",
+        (hero,)
     )
-    conn.commit()
-    conn.close()
-    return {"message": "Category added"}
-
-
-@app.delete("/categories/{category_id}")
-def delete_category(category_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM categories WHERE id=?", (category_id,))
-    conn.commit()
-    conn.close()
-    return {"message": "Category deleted"}
-
-
-# ------------------------
-# Friends APIs
-# ------------------------
-@app.get("/friends")
-def get_friends():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM friends")
     data = cursor.fetchall()
     conn.close()
     return data
-
-
-@app.post("/friends")
-def add_friend(friend: Friend):
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO friends (name) VALUES (?)", (friend.name,))
-        conn.commit()
-    except:
-        raise HTTPException(status_code=400, detail="Friend already exists")
-    finally:
-        conn.close()
-    return {"message": "Friend added"}
-
-
-@app.delete("/friends/{friend_id}")
-def delete_friend(friend_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM friends WHERE id=?", (friend_id,))
-    conn.commit()
-    conn.close()
-    return {"message": "Friend deleted"}
-
-
-# ------------------------
-# Transactions APIs
-# ------------------------
-@app.get("/transactions")
-def get_transactions():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT t.id, t.date, c.name, c.type, t.amount, t.note
-        FROM transactions t
-        JOIN categories c ON t.category_id = c.id
-        ORDER BY t.date DESC
-    """)
-    data = cursor.fetchall()
-    conn.close()
-    return data
-
-
-@app.post("/transactions")
-def add_transaction(tx: Transaction):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "INSERT INTO transactions (date, category_id, amount, note) VALUES (?, ?, ?, ?)",
-        (tx.date, tx.category_id, tx.amount, tx.note)
-    )
-
-    tx_id = cursor.lastrowid
-
-    if tx.friend_id:
-        cursor.execute(
-            "INSERT INTO transaction_friends (transaction_id, friend_id) VALUES (?, ?)",
-            (tx_id, tx.friend_id)
-        )
-
-    conn.commit()
-    conn.close()
-    return {"message": "Transaction added"}
