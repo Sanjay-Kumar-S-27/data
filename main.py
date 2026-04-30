@@ -44,6 +44,12 @@ def fetch_movie_by_hero(hero: str):
         "select * from movie_data.default.marvel_movies where hero = ?",
         (hero,)
     )
-    data = cursor.fetchall()
+    rows = cursor.fetchall()
+
+    # 👇 Get column names
+    columns = [col[0] for col in cursor.description]
+
+    # 👇 Convert rows to list of dicts
+    data = [dict(zip(columns, row)) for row in rows]
     conn.close()
     return data
